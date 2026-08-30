@@ -1,0 +1,55 @@
+name: Refresh terminal
+
+# Auto-refreshes Jake's AI Terminal on a schedule and redeploys to GitHub Pages.
+#  - Prices: every 15 min during US market hours (Mon-Fri, ~9:30am-4:30pm ET)
+#  - Beta/alpha + new-13F check: weekly (Sunday 06:00 UTC)
+#  - You can also trigger it by hand from the Actions tab ("Run workflow").
+on:
+  schedule:
+    - cron: '*/15 13-20 * * 1-5'   # prices, market hours (UTC)
+    - cron: '0 6 * * 0'            # full: beta/alpha + 13F check (weekly)
+  workflow_dispatch:
+    inputs:
+      full:
+        description: 'Run a full refresh (prices + beta/alpha + 13F check)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Refresh + rebuild
+        run: |
+          if [ "${{ github.event.schedule }}" = "0 6 * * 0" ] || [ "${{ github.event.inputs.full }}" = "true" ]; then
+            echo "Running FULL refresh (prices + beta/alpha + 13F check)"
+            python3 refresh_live.py --full
+          else
+            echo "Running price refresh"
+            python3 refresh_live.py
+          fi
+
+      - name: Commit refreshed data
+        run: |
+          git config user.name  "terminal-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --staged --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "auto: refresh $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            git push
+          fi
